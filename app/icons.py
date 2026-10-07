@@ -46,6 +46,8 @@ UNDO_ICON = "fa6s.arrow-rotate-left"
 
 CLEAR_ICON = "fa6s.trash-can"
 
+SCREENSHOT_ICON = "fa6s.camera"
+
 TOOL_ICONS = {
     "hand": "fa6s.arrow-pointer",
     "pencil": "fa6s.pencil",
