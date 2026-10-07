@@ -538,13 +538,17 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
         QApplication.processEvents()
 
-        success = self._capture_with_gnome_shell(
+        # En GNOME/Ubuntu con Wayland usamos primero
+        # gnome-screenshot, que tiene integración nativa
+        # con el escritorio y puede capturar la pantalla
+        # aunque QScreen.grabWindow() no tenga permiso.
+        success = self._capture_with_gnome_screenshot(
             target
         )
 
         if not success:
 
-            success = self._capture_with_gnome_screenshot(
+            success = self._capture_with_gnome_shell(
                 target
             )
 
