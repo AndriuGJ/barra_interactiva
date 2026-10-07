@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PACKAGE_NAME="barra-interactiva"
-VERSION="${VERSION:-1.0.4}"
+VERSION="${VERSION:-1.0.5}"
 ARCH="${ARCH:-amd64}"
 
 rm -rf package *.deb
@@ -33,7 +33,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: AndriuGJ
-Depends: python3, python3-pyside6.qtwidgets, python3-qtawesome, qt6-qpa-plugins
+Depends: python3, python3-pyside6.qtwidgets, python3-pyside6.qtdbus, python3-qtawesome, qt6-qpa-plugins, xdg-desktop-portal
 Description: Barra flotante de anotacion para Linux
  Permite dibujar, escribir texto, crear figuras, tomar capturas
  anotadas y realizar anotaciones sobre la pantalla.
