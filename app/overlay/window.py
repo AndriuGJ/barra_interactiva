@@ -1,3 +1,5 @@
+import shutil
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -5,8 +7,17 @@ from PySide6.QtCore import (
     Qt,
     QPoint,
     Signal,
+    Slot,
     QStandardPaths,
     QThread,
+    QEventLoop,
+    QTimer,
+    QUrl,
+    QObject,
+)
+from PySide6.QtDBus import (
+    QDBusConnection,
+    QDBusInterface,
 )
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QWidget, QApplication, QToolTip
@@ -16,6 +27,11 @@ from app.config import DEFAULT_PEN_COLOR
 from app.overlay.objects import ObjectsMixin
 from app.overlay.canvas import CanvasMixin
 from app.overlay.panel import PanelMixin
+
+
+class PortalScreenshotBridge(QObject):
+
+    response = Signal(int, object)
 
 
 class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
@@ -556,9 +572,20 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
         QApplication.processEvents()
 
-        success = self._capture_with_qt(
+        # En Wayland/XWayland QScreen.grabWindow(0) puede
+        # devolver una imagen negra porque X11 no tiene acceso
+        # al contenido de las ventanas Wayland. Primero usamos
+        # el portal oficial del escritorio y dejamos Qt como
+        # respaldo para sesiones X11 reales.
+        success = self._capture_with_portal(
             target
         )
+
+        if not success:
+
+            success = self._capture_with_qt(
+                target
+            )
 
         self.selected_object = previous_selection
 
@@ -597,6 +624,212 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
             "No se pudo realizar la captura. "
             "La sesión no ofrece captura X11/XWayland.",
             self.capture_button
+        )
+
+
+    def _capture_with_portal(
+        self,
+        target
+    ):
+
+        bus = QDBusConnection.sessionBus()
+
+        if not bus.isConnected():
+
+            return False
+
+        token = (
+            "barra_"
+            + uuid.uuid4().hex
+        )
+
+        sender = (
+            bus.baseService()
+            .lstrip(":")
+            .replace(".", "_")
+        )
+
+        response_path = (
+            "/org/freedesktop/portal/desktop/request/"
+            + sender
+            + "/"
+            + token
+        )
+
+        bridge = PortalScreenshotBridge(
+            self
+        )
+
+        loop = QEventLoop(
+            self
+        )
+
+        result = {
+            "done": False,
+            "ok": False,
+            "uri": "",
+        }
+
+        @Slot(int, object)
+        def handle_response(
+            code,
+            values
+        ):
+
+            result["done"] = True
+
+            if code == 0:
+
+                uri = values.get(
+                    "uri",
+                    ""
+                )
+
+                if hasattr(
+                    uri,
+                    "variant"
+                ):
+
+                    uri = uri.variant()
+
+                result["uri"] = str(
+                    uri
+                )
+
+                result["ok"] = bool(
+                    result["uri"]
+                )
+
+            loop.quit()
+
+        bridge.response.connect(
+            handle_response
+        )
+
+        connected = bus.connect(
+            "",
+            response_path,
+            "org.freedesktop.portal.Request",
+            "Response",
+            bridge,
+            "response",
+        )
+
+        if not connected:
+
+            return False
+
+        interface = QDBusInterface(
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.Screenshot",
+            bus,
+        )
+
+        if not interface.isValid():
+
+            bus.disconnect(
+                "",
+                response_path,
+                "org.freedesktop.portal.Request",
+                "Response",
+                bridge,
+                "response",
+            )
+
+            return False
+
+        reply = interface.call(
+            "Screenshot",
+            "",
+            {
+                "interactive": False,
+                "handle_token": token,
+            },
+        )
+
+        if reply.errorName():
+
+            bus.disconnect(
+                "",
+                response_path,
+                "org.freedesktop.portal.Request",
+                "Response",
+                bridge,
+                "response",
+            )
+
+            return False
+
+        timeout = QTimer(
+            self
+        )
+
+        timeout.setSingleShot(
+            True
+        )
+
+        timeout.timeout.connect(
+            loop.quit
+        )
+
+        timeout.start(
+            15000
+        )
+
+        loop.exec()
+
+        timeout.stop()
+
+        bus.disconnect(
+            "",
+            response_path,
+            "org.freedesktop.portal.Request",
+            "Response",
+            bridge,
+            "response",
+        )
+
+        if (
+            not result["done"]
+            or not result["ok"]
+        ):
+
+            return False
+
+        source = QUrl(
+            result["uri"]
+        ).toLocalFile()
+
+        if not source:
+
+            return False
+
+        source_path = Path(
+            source
+        )
+
+        if (
+            not source_path.exists()
+            or source_path.stat().st_size == 0
+        ):
+
+            return False
+
+        try:
+
+            shutil.copyfile(
+                source_path,
+                target
+            )
+
+        except OSError:
+
+            return False
+
+        return (
+            target.exists()
+            and target.stat().st_size > 0
         )
 
 
