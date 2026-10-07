@@ -1,6 +1,11 @@
-from PySide6.QtCore import Qt, QPoint, Signal
-from PySide6.QtGui import QColor
-from PySide6.QtWidgets import QWidget, QApplication
+import shutil
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QPoint, Signal, QStandardPaths
+from PySide6.QtGui import QColor, QImage
+from PySide6.QtWidgets import QWidget, QApplication, QToolTip
 
 from app import icons
 from app.config import DEFAULT_PEN_COLOR
@@ -460,6 +465,242 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
         self.update_color_selection()
 
         self.update()
+
+    # =========================================================
+    # CAPTURA DE PANTALLA
+    # =========================================================
+
+
+    def screenshots_directory(self):
+
+        pictures = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.PicturesLocation
+        )
+
+        if pictures:
+
+            base = Path(pictures)
+
+        else:
+
+            base = Path.home() / "Pictures"
+
+        candidates = [
+            base / "Screenshots",
+            base / "Capturas de pantalla",
+        ]
+
+        for directory in candidates:
+
+            if directory.exists():
+
+                return directory
+
+        directory = base / "Screenshots"
+
+        directory.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        return directory
+
+
+    def capture_annotated_screenshot(self):
+
+        # Si el usuario estaba escribiendo texto,
+        # lo confirmamos para que salga en la captura.
+        if self.text_editor:
+
+            self.confirm_text()
+
+        directory = self.screenshots_directory()
+
+        filename = (
+            "Barra_Interactiva_"
+            + datetime.now().strftime(
+                "%Y-%m-%d_%H-%M-%S"
+            )
+            + ".png"
+        )
+
+        target = directory / filename
+
+        previous_selection = self.selected_object
+
+        # La barra y el recuadro de selección no deben
+        # aparecer en la imagen final.
+        self.selected_object = None
+
+        self.toolbar.hide()
+
+        self.update()
+
+        QApplication.processEvents()
+
+        success = self._capture_with_gnome_shell(
+            target
+        )
+
+        if not success:
+
+            success = self._capture_with_gnome_screenshot(
+                target
+            )
+
+        if not success:
+
+            success = self._capture_with_qt(
+                target
+            )
+
+        self.selected_object = previous_selection
+
+        self.toolbar.show()
+        self.toolbar.raise_()
+
+        self.update()
+
+        if success and target.exists():
+
+            image = QImage(
+                str(target)
+            )
+
+            if not image.isNull():
+
+                QApplication.clipboard().setImage(
+                    image
+                )
+
+            QToolTip.showText(
+                self.capture_button.mapToGlobal(
+                    self.capture_button.rect().bottomLeft()
+                ),
+                "Captura guardada y copiada\n"
+                + str(target),
+                self.capture_button
+            )
+
+            return
+
+        QToolTip.showText(
+            self.capture_button.mapToGlobal(
+                self.capture_button.rect().bottomLeft()
+            ),
+            "No se pudo realizar la captura.",
+            self.capture_button
+        )
+
+
+    def _capture_with_gnome_shell(
+        self,
+        target
+    ):
+
+        if not shutil.which("gdbus"):
+
+            return False
+
+        try:
+
+            result = subprocess.run(
+                [
+                    "gdbus",
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.gnome.Shell.Screenshot",
+                    "--object-path",
+                    "/org/gnome/Shell/Screenshot",
+                    "--method",
+                    "org.gnome.Shell.Screenshot.Screenshot",
+                    "false",
+                    "false",
+                    str(target),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+
+            return (
+                result.returncode == 0
+                and target.exists()
+                and target.stat().st_size > 0
+            )
+
+        except (
+            OSError,
+            subprocess.SubprocessError,
+        ):
+
+            return False
+
+
+    def _capture_with_gnome_screenshot(
+        self,
+        target
+    ):
+
+        executable = shutil.which(
+            "gnome-screenshot"
+        )
+
+        if not executable:
+
+            return False
+
+        try:
+
+            result = subprocess.run(
+                [
+                    executable,
+                    "--file",
+                    str(target),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+
+            return (
+                result.returncode == 0
+                and target.exists()
+                and target.stat().st_size > 0
+            )
+
+        except (
+            OSError,
+            subprocess.SubprocessError,
+        ):
+
+            return False
+
+
+    def _capture_with_qt(
+        self,
+        target
+    ):
+
+        screen = QApplication.primaryScreen()
+
+        if screen is None:
+
+            return False
+
+        pixmap = screen.grabWindow(0)
+
+        if pixmap.isNull():
+
+            return False
+
+        return pixmap.save(
+            str(target),
+            "PNG"
+        )
 
     # =========================================================
     # COLOR PERSONALIZADO

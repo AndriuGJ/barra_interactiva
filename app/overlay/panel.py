@@ -406,6 +406,29 @@ class PanelMixin:
         )
 
         # -----------------------------------------------------
+        # CAPTURA
+        # -----------------------------------------------------
+
+        self.capture_button = QPushButton()
+
+        icons.set_icon(
+            self.capture_button,
+            icons.SCREENSHOT_ICON
+        )
+
+        self.capture_button.setToolTip(
+            "Capturar pantalla, guardar y copiar"
+        )
+
+        self.capture_button.clicked.connect(
+            self.capture_annotated_screenshot
+        )
+
+        layout.addWidget(
+            self.capture_button
+        )
+
+        # -----------------------------------------------------
         # INTERACTUAR
         # -----------------------------------------------------
 
