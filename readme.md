@@ -74,10 +74,10 @@ git push
 Descarga la versión actual y ejecuta:
 
 ```bash
-sudo apt install ./barra-interactiva_1.0.4_amd64.deb
+sudo apt install ./barra-interactiva_1.0.5_amd64.deb
 ```
 
-La versión 1.0.4 usa las bibliotecas Qt/PySide6 del propio Ubuntu en lugar de
+La versión 1.0.5 usa las bibliotecas Qt/PySide6 del propio Ubuntu en lugar de
 empaquetar una copia completa de Qt. Esto reduce mucho el tamaño del instalador
 y evita incompatibilidades entre las bibliotecas gráficas empaquetadas y el
 sistema.
@@ -87,7 +87,7 @@ sistema.
 No es necesario desinstalar primero. APT reemplaza la versión anterior:
 
 ```bash
-sudo apt install ./barra-interactiva_1.0.4_amd64.deb
+sudo apt install ./barra-interactiva_1.0.5_amd64.deb
 ```
 
 Para comprobar la versión instalada:
@@ -106,7 +106,7 @@ sudo apt autoremove --purge
 ```
 
 La versión 1.0.3 instalaba `gnome-screenshot` como dependencia. La versión
-1.0.4 ya no usa ni necesita esa aplicación. Si quedó instalada y no la usas,
+1.0.5 ya no usa ni necesita esa aplicación. Si quedó instalada y no la usas,
 puedes quitarla con:
 
 ```bash
@@ -127,6 +127,12 @@ Al pulsar el botón de cámara:
    capturas ya existente).
 4. La misma imagen se copia al portapapeles para poder pegarla con `Ctrl+V`.
 
-En Ubuntu la aplicación usa XWayland/X11 cuando está disponible. Esto permite
-posicionar la barra en el borde derecho y hacer la captura desde Qt sin instalar
-una aplicación de capturas adicional.
+En Ubuntu la barra continúa usando XWayland/X11 cuando está disponible para
+mantener su posición en el borde derecho. Para la captura se usa primero el
+portal oficial del escritorio (XDG Desktop Portal), porque Wayland bloquea que
+una aplicación X11 lea directamente el contenido de las ventanas Wayland. Esto
+evita las capturas negras y no instala ninguna aplicación de capturas adicional.
+
+Dependiendo de la política de seguridad de GNOME, el sistema puede mostrar una
+confirmación de captura. Ese diálogo pertenece a Wayland/GNOME y no se puede
+eliminar de forma segura desde la aplicación.
