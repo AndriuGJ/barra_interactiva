@@ -1,9 +1,13 @@
-import shutil
-import subprocess
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QPoint, Signal, QStandardPaths
+from PySide6.QtCore import (
+    Qt,
+    QPoint,
+    Signal,
+    QStandardPaths,
+    QThread,
+)
 from PySide6.QtGui import QColor, QImage
 from PySide6.QtWidgets import QWidget, QApplication, QToolTip
 
@@ -496,7 +500,12 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
                 return directory
 
-        directory = base / "Screenshots"
+        # En Ubuntu en español suele mostrarse como
+        # "Capturas de pantalla". Si todavía no existe,
+        # usamos ese nombre dentro de Imágenes.
+        directory = (
+            base / "Capturas de pantalla"
+        )
 
         directory.mkdir(
             parents=True,
@@ -508,8 +517,11 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
     def capture_annotated_screenshot(self):
 
-        # Si el usuario estaba escribiendo texto,
-        # lo confirmamos para que salga en la captura.
+        # El paquete .deb ejecuta Qt mediante X11/XWayland.
+        # Así QScreen puede capturar el escritorio compuesto
+        # sin instalar otra aplicación y sin abrir el portal
+        # de permisos de Wayland.
+
         if self.text_editor:
 
             self.confirm_text()
@@ -528,8 +540,8 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
         previous_selection = self.selected_object
 
-        # La barra y el recuadro de selección no deben
-        # aparecer en la imagen final.
+        # No queremos guardar ni la barra ni el recuadro
+        # punteado de selección.
         self.selected_object = None
 
         self.toolbar.hide()
@@ -538,25 +550,15 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
         QApplication.processEvents()
 
-        # En GNOME/Ubuntu con Wayland usamos primero
-        # gnome-screenshot, que tiene integración nativa
-        # con el escritorio y puede capturar la pantalla
-        # aunque QScreen.grabWindow() no tenga permiso.
-        success = self._capture_with_gnome_screenshot(
+        # Damos un instante al compositor para repintar
+        # la pantalla después de ocultar la barra.
+        QThread.msleep(120)
+
+        QApplication.processEvents()
+
+        success = self._capture_with_qt(
             target
         )
-
-        if not success:
-
-            success = self._capture_with_gnome_shell(
-                target
-            )
-
-        if not success:
-
-            success = self._capture_with_qt(
-                target
-            )
 
         self.selected_object = previous_selection
 
@@ -592,96 +594,10 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
             self.capture_button.mapToGlobal(
                 self.capture_button.rect().bottomLeft()
             ),
-            "No se pudo realizar la captura.",
+            "No se pudo realizar la captura. "
+            "La sesión no ofrece captura X11/XWayland.",
             self.capture_button
         )
-
-
-    def _capture_with_gnome_shell(
-        self,
-        target
-    ):
-
-        if not shutil.which("gdbus"):
-
-            return False
-
-        try:
-
-            result = subprocess.run(
-                [
-                    "gdbus",
-                    "call",
-                    "--session",
-                    "--dest",
-                    "org.gnome.Shell.Screenshot",
-                    "--object-path",
-                    "/org/gnome/Shell/Screenshot",
-                    "--method",
-                    "org.gnome.Shell.Screenshot.Screenshot",
-                    "false",
-                    "false",
-                    str(target),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-
-            return (
-                result.returncode == 0
-                and target.exists()
-                and target.stat().st_size > 0
-            )
-
-        except (
-            OSError,
-            subprocess.SubprocessError,
-        ):
-
-            return False
-
-
-    def _capture_with_gnome_screenshot(
-        self,
-        target
-    ):
-
-        executable = shutil.which(
-            "gnome-screenshot"
-        )
-
-        if not executable:
-
-            return False
-
-        try:
-
-            result = subprocess.run(
-                [
-                    executable,
-                    "--file",
-                    str(target),
-                ],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-
-            return (
-                result.returncode == 0
-                and target.exists()
-                and target.stat().st_size > 0
-            )
-
-        except (
-            OSError,
-            subprocess.SubprocessError,
-        ):
-
-            return False
 
 
     def _capture_with_qt(

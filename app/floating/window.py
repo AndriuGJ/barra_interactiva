@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QPoint
+from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -105,7 +105,18 @@ class FloatingToolbar(QWidget):
 
             self.first_show = False
 
-            self.move_to_edge()
+            # En X11/XWayland el gestor puede ajustar la geometría
+            # justo después del primer show. Reaplicamos la posición
+            # al terminar el ciclo actual y una vez más poco después.
+            QTimer.singleShot(
+                0,
+                self.move_to_edge
+            )
+
+            QTimer.singleShot(
+                120,
+                self.move_to_edge
+            )
 
     def screen_area(self):
 

@@ -13,9 +13,10 @@ def configure_qt_platform():
     """
     Selecciona el backend gráfico adecuado en Linux.
 
-    - Wayland: usa Qt Wayland nativo.
-    - X11: usa XCB.
-    - Otros casos: deja que Qt decida automáticamente.
+    - Si XWayland/X11 está disponible (DISPLAY), usa XCB.
+      Esto permite posicionar la barra y capturar la pantalla
+      sin el diálogo de permisos del portal de Wayland.
+    - Si no hay DISPLAY, usa Wayland nativo.
 
     Se respeta QT_QPA_PLATFORM si el usuario ya lo definió.
     """
@@ -24,6 +25,10 @@ def configure_qt_platform():
         return
 
     if not sys.platform.startswith("linux"):
+        return
+
+    if os.environ.get("DISPLAY"):
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
         return
 
     session_type = (
@@ -35,10 +40,6 @@ def configure_qt_platform():
 
     if session_type == "wayland":
         os.environ["QT_QPA_PLATFORM"] = "wayland"
-        return
-
-    if session_type == "x11":
-        os.environ["QT_QPA_PLATFORM"] = "xcb"
         return
 
 

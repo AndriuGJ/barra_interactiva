@@ -3,7 +3,7 @@
 Barra flotante + overlay de dibujo hecho con **PySide6**. Permite dibujar
 encima de la pantalla (lápiz, rectángulos, círculos, flechas, texto),
 cambiar colores y grosores, seleccionar y mover lo dibujado con la mano,
-deshacer, limpiar y volver a la barra.
+deshacer, limpiar, tomar capturas con las anotaciones y volver a la barra.
 
 ## Requisitos
 
@@ -37,6 +37,7 @@ python app.py
 - **Minimizar**: botón `—` (la barra se pliega en una píldora arrastrable;
   el botón con recuadro la restaura).
 - **Dibujar**: pulsa una herramienta y se abre la pantalla de dibujo.
+- **Captura**: el botón de cámara guarda la pantalla con los dibujos y textos y la copia al portapapeles.
 - **Volver**: botón `Interactuar` de la barra de dibujo.
 
 ## Atajos (en la pantalla de dibujo)
@@ -66,3 +67,66 @@ git add -A
 git commit -m "Descripción del cambio"
 git push
 ```
+
+
+## Instalar el paquete .deb
+
+Descarga la versión actual y ejecuta:
+
+```bash
+sudo apt install ./barra-interactiva_1.0.4_amd64.deb
+```
+
+La versión 1.0.4 usa las bibliotecas Qt/PySide6 del propio Ubuntu en lugar de
+empaquetar una copia completa de Qt. Esto reduce mucho el tamaño del instalador
+y evita incompatibilidades entre las bibliotecas gráficas empaquetadas y el
+sistema.
+
+## Actualizar desde una versión anterior
+
+No es necesario desinstalar primero. APT reemplaza la versión anterior:
+
+```bash
+sudo apt install ./barra-interactiva_1.0.4_amd64.deb
+```
+
+Para comprobar la versión instalada:
+
+```bash
+apt list --installed 2>/dev/null | grep barra-interactiva
+```
+
+## Eliminar versiones anteriores
+
+Para eliminar Barra Interactiva completamente:
+
+```bash
+sudo apt remove --purge barra-interactiva
+sudo apt autoremove --purge
+```
+
+La versión 1.0.3 instalaba `gnome-screenshot` como dependencia. La versión
+1.0.4 ya no usa ni necesita esa aplicación. Si quedó instalada y no la usas,
+puedes quitarla con:
+
+```bash
+sudo apt remove --purge gnome-screenshot
+sudo apt autoremove --purge
+```
+
+Después puedes instalar nuevamente Barra Interactiva con el comando de la
+sección anterior.
+
+## Capturas de pantalla
+
+Al pulsar el botón de cámara:
+
+1. La barra se oculta temporalmente.
+2. Se captura la pantalla con los dibujos, formas y textos.
+3. La imagen se guarda en `Imágenes/Capturas de pantalla` (o la carpeta de
+   capturas ya existente).
+4. La misma imagen se copia al portapapeles para poder pegarla con `Ctrl+V`.
+
+En Ubuntu la aplicación usa XWayland/X11 cuando está disponible. Esto permite
+posicionar la barra en el borde derecho y hacer la captura desde Qt sin instalar
+una aplicación de capturas adicional.
