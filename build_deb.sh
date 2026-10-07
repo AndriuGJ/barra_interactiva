@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_NAME="BarraInteractiva"
 PACKAGE_NAME="barra-interactiva"
-VERSION="${VERSION:-1.0.0}"
+VERSION="${VERSION:-1.0.1}"
 ARCH="${ARCH:-amd64}"
 
 rm -rf build dist package *.deb
@@ -33,7 +33,7 @@ Section: utils
 Priority: optional
 Architecture: ${ARCH}
 Maintainer: AndriuGJ
-Depends: libxcb-cursor0, libxkbcommon-x11-0, libgl1
+Depends: libgl1, libxkbcommon0, libwayland-client0, libxcb-cursor0, libxkbcommon-x11-0
 Description: Barra flotante de anotacion para Linux
  Permite dibujar, escribir texto, crear figuras y realizar
  anotaciones sobre la pantalla durante exposiciones o clases.

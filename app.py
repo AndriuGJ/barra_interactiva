@@ -9,18 +9,41 @@ from app.icons import app_icon
 from app.floating import FloatingToolbar
 
 
-def main():
+def configure_qt_platform():
+    """
+    Selecciona el backend gráfico adecuado en Linux.
 
-    # En Wayland el compositor decide dónde se
-    # colocan las ventanas e ignora move().
-    # Usamos XWayland para poder anclar la barra
-    # al borde derecho de la pantalla.
-    if (
-        not os.environ.get("QT_QPA_PLATFORM")
-        and os.environ.get("DISPLAY")
-    ):
+    - Wayland: usa Qt Wayland nativo.
+    - X11: usa XCB.
+    - Otros casos: deja que Qt decida automáticamente.
 
+    Se respeta QT_QPA_PLATFORM si el usuario ya lo definió.
+    """
+
+    if os.environ.get("QT_QPA_PLATFORM"):
+        return
+
+    if not sys.platform.startswith("linux"):
+        return
+
+    session_type = (
+        os.environ
+        .get("XDG_SESSION_TYPE", "")
+        .strip()
+        .lower()
+    )
+
+    if session_type == "wayland":
+        os.environ["QT_QPA_PLATFORM"] = "wayland"
+        return
+
+    if session_type == "x11":
         os.environ["QT_QPA_PLATFORM"] = "xcb"
+        return
+
+
+def main():
+    configure_qt_platform()
 
     signal.signal(
         signal.SIGINT,
