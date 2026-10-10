@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PACKAGE_NAME="barra-interactiva"
-VERSION="${VERSION:-1.0.5}"
+VERSION="${VERSION:-1.0.6}"
 ARCH="${ARCH:-amd64}"
 
 rm -rf package *.deb
