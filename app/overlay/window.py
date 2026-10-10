@@ -1,4 +1,5 @@
 import shutil
+import subprocess
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -8,6 +9,8 @@ from PySide6.QtCore import (
     QPoint,
     Signal,
     Slot,
+    SLOT,
+    QSettings,
     QStandardPaths,
     QThread,
     QEventLoop,
@@ -19,19 +22,50 @@ from PySide6.QtDBus import (
     QDBusConnection,
     QDBusInterface,
 )
-from PySide6.QtGui import QColor, QImage
-from PySide6.QtWidgets import QWidget, QApplication, QToolTip
+from PySide6.QtGui import QColor, QImage, QCursor, QKeySequence
+from PySide6.QtWidgets import (
+    QWidget,
+    QApplication,
+    QFileDialog,
+    QToolTip,
+    QDialog,
+)
 
 from app import icons
 from app.config import DEFAULT_PEN_COLOR
+from app.hotkey import saved_hotkey, hotkey_is_plain_letter
 from app.overlay.objects import ObjectsMixin
 from app.overlay.canvas import CanvasMixin
 from app.overlay.panel import PanelMixin
 
 
+def capture_settings():
+
+    return QSettings(
+        "BarraInteractiva",
+        "BarraInteractiva"
+    )
+
+
 class PortalScreenshotBridge(QObject):
 
     response = Signal(int, object)
+
+    # PySide6 solo enlaza la señal D-Bus si el slot se
+    # declara con los tipos exactos de la señal
+    # org.freedesktop.portal.Request.Response (u, a{sv})
+    # y se referencia con la macro SLOT().
+    @Slot("uint", "QVariantMap")
+    def on_response(
+        self,
+        code,
+        values
+    ):
+
+        self.response.emit(
+            int(code),
+            dict(values) if values else {}
+        )
 
 
 class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
@@ -44,6 +78,10 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
     """
 
     stop_requested = Signal()
+
+    # F: alterna "modo normal" (usar el equipo) y
+    # la pantalla de dibujo.
+    toggle_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -59,6 +97,57 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
         )
 
         self.pen_width = 4
+
+        self.fill_enabled = False
+
+        # =====================================================
+        # ZOOM (lupa del escritorio)
+        # =====================================================
+
+        # Solo acerca: pasos definidos del 110% al 200%.
+        self.zoom_levels = (
+            1.1, 1.2, 1.3, 1.4, 1.5,
+            1.6, 1.7, 1.8, 1.9, 2.0,
+        )
+
+        self.zoom_mode = False
+
+        self.zooming = False
+
+        self.zoom_index = -1
+
+        self.original_mag_factor = None
+
+        # Solo apagamos la lupa si la encendimos
+        # nosotros; una lupa ajena (accesibilidad) se
+        # queda como está.
+        self.magnifier_on = False
+
+        self.original_enabled = None
+
+        self.restore_factor_timer = QTimer(self)
+
+        self.restore_factor_timer.setSingleShot(
+            True
+        )
+
+        self.restore_factor_timer.setInterval(
+            1000
+        )
+
+        self.restore_factor_timer.timeout.connect(
+            self.restore_mag_factor_now
+        )
+
+        self.zoom_timer = QTimer(self)
+
+        self.zoom_timer.setInterval(
+            500
+        )
+
+        self.zoom_timer.timeout.connect(
+            self.zoom_in
+        )
 
         self.drawing = False
 
@@ -156,6 +245,11 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
         if screen is None:
             return
 
+        # Cada sesión de dibujo empieza al 100%
+        self.set_zoom_mode(
+            False
+        )
+
         # Mutter/GNOME redimensiona las ventanas que
         # tapen barras al área de trabajo, lo que
         # desplazaría nuestra barra. Usamos ese
@@ -231,6 +325,8 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
     def deactivate(self):
 
+        self.set_zoom_mode(False)
+
         self.cancel_text_editor()
 
         self.selected_object = None
@@ -254,10 +350,40 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
         ):
             return
 
+        # Clic derecho con la lupa activa: cancelar
+        # el zoom (volver al 100%)
+        if (
+            event.button()
+            == Qt.MouseButton.RightButton
+            and self.zoom_mode
+        ):
+
+            self.set_zoom_mode(False)
+
+            return
+
         if (
             event.button()
             != Qt.MouseButton.LeftButton
         ):
+            return
+
+        # ZOOM: con la lupa activa el clic sube un
+        # nivel (y sigue subiendo si se mantiene)
+        if self.zoom_mode:
+
+            if self.text_editor:
+
+                self.confirm_text()
+
+            self.zooming = True
+
+            self.zoom_in()
+
+            self.zoom_timer.start()
+
+            self.update()
+
             return
 
         # MANO
@@ -329,6 +455,9 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
             event.position().toPoint()
         )
 
+        if self.zooming:
+            return
+
         # MOVER OBJETO SELECCIONADO
         if (
             self.current_tool == "hand"
@@ -396,6 +525,18 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
         ):
             return
 
+        # ZOOM: al soltar el clic se mantiene el
+        # nivel hasta apagar la lupa
+        if self.zooming:
+
+            self.zooming = False
+
+            self.zoom_timer.stop()
+
+            self.update()
+
+            return
+
         if self.moving_object:
 
             self.moving_object = False
@@ -452,6 +593,10 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
                 ),
 
                 "width": self.pen_width,
+
+                # Solo rectángulos y círculos lo usan al
+                # pintarse; las demás formas lo ignoran.
+                "filled": self.fill_enabled,
             })
 
         self.current_path = []
@@ -493,6 +638,16 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
     def screenshots_directory(self):
 
+        # Carpeta elegida por el usuario en Configuración.
+        custom = capture_settings().value(
+            "screenshots_directory",
+            ""
+        )
+
+        if custom and Path(custom).is_dir():
+
+            return Path(custom)
+
         pictures = QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.PicturesLocation
         )
@@ -529,6 +684,91 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
         )
 
         return directory
+
+
+    def refresh_directory_tooltip(self):
+
+        self.config_button.setToolTip(
+            "Preferencias — atajo: "
+            + saved_hotkey()
+            + " | carpeta de capturas: "
+            + str(self.screenshots_directory())
+        )
+
+
+    def open_preferences(self):
+
+        from app.preferences import PreferencesDialog
+
+        dialog = PreferencesDialog(
+            screenshots_directory=str(
+                self.screenshots_directory()
+            ),
+            parent=self,
+        )
+
+        dialog.settings_changed.connect(
+            self.refresh_directory_tooltip
+        )
+
+        if (
+            dialog.exec()
+            == QDialog.DialogCode.Accepted
+        ):
+
+            self.refresh_directory_tooltip()
+
+
+    def hotkey_matches(self, event):
+
+        modifiers = event.modifiers()
+
+        pressed = QKeySequence(
+            int(
+                getattr(
+                    modifiers,
+                    "value",
+                    modifiers,
+                )
+            )
+            | int(event.key())
+        )
+
+        return (
+            pressed.toString().lower()
+            == QKeySequence(saved_hotkey())
+            .toString()
+            .lower()
+        )
+
+
+    def choose_screenshots_directory(self):
+
+        current = self.screenshots_directory()
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "Carpeta donde guardar las capturas",
+            str(current)
+        )
+
+        if not directory:
+
+            return
+
+        capture_settings().setValue(
+            "screenshots_directory",
+            directory
+        )
+
+        capture_settings().sync()
+
+        self.refresh_directory_tooltip()
+
+        QToolTip.showText(
+            QCursor.pos(),
+            "Carpeta de capturas:\n" + directory
+        )
 
 
     def capture_annotated_screenshot(self):
@@ -621,8 +861,9 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
             self.capture_button.mapToGlobal(
                 self.capture_button.rect().bottomLeft()
             ),
-            "No se pudo realizar la captura. "
-            "La sesión no ofrece captura X11/XWayland.",
+            "No se pudo capturar la pantalla. "
+            "Revisa los permisos de captura del "
+            "escritorio (portal de Wayland).",
             self.capture_button
         )
 
@@ -712,7 +953,7 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
             "org.freedesktop.portal.Request",
             "Response",
             bridge,
-            "response",
+            SLOT("on_response(uint,QVariantMap)"),
         )
 
         if not connected:
@@ -734,7 +975,7 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
                 "org.freedesktop.portal.Request",
                 "Response",
                 bridge,
-                "response",
+                SLOT("on_response(uint,QVariantMap)"),
             )
 
             return False
@@ -756,7 +997,7 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
                 "org.freedesktop.portal.Request",
                 "Response",
                 bridge,
-                "response",
+                SLOT("on_response(uint,QVariantMap)"),
             )
 
             return False
@@ -787,7 +1028,7 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
             "org.freedesktop.portal.Request",
             "Response",
             bridge,
-            "response",
+            SLOT("on_response(uint,QVariantMap)"),
         )
 
         if (
@@ -816,16 +1057,34 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
             return False
 
+        # El portal guarda su propia copia en Imágenes;
+        # la movemos a nuestra carpeta para que solo
+        # quede una imagen.
         try:
 
-            shutil.copyfile(
-                source_path,
-                target
-            )
+            if source_path != target:
+
+                shutil.move(
+                    str(source_path),
+                    str(target)
+                )
 
         except OSError:
 
-            return False
+            try:
+
+                shutil.copyfile(
+                    source_path,
+                    target
+                )
+
+                source_path.unlink(
+                    missing_ok=True
+                )
+
+            except OSError:
+
+                return False
 
         return (
             target.exists()
@@ -850,6 +1109,48 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
 
             return False
 
+        # En Wayland/XWayland grabWindow devuelve una imagen
+        # completamente negra en lugar de fallar. En ese caso
+        # no guardamos basura y dejamos que se avise al usuario.
+        image = pixmap.toImage()
+
+        if image.isNull():
+
+            return False
+
+        black = True
+
+        for x in range(
+            10,
+            image.width(),
+            max(1, image.width() // 8)
+        ):
+
+            for y in range(
+                10,
+                image.height(),
+                max(1, image.height() // 6)
+            ):
+
+                if image.pixelColor(
+                    x,
+                    y
+                ).alpha() > 0 and image.pixelColor(
+                    x,
+                    y
+                ).rgb() != 0xFF000000:
+
+                    black = False
+
+                    break
+
+            if not black:
+                break
+
+        if black:
+
+            return False
+
         return pixmap.save(
             str(target),
             "PNG"
@@ -866,6 +1167,388 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
     ):
 
         self.pen_width = width
+
+    # =========================================================
+    # RELLENO
+    # =========================================================
+
+
+    def set_fill(
+        self,
+        enabled
+    ):
+
+        # Afecta a las formas que se dibujen a partir
+        # de ahora; las ya dibujadas no cambian.
+        self.fill_enabled = bool(
+            enabled
+        )
+
+        button = getattr(
+            self,
+            "fill_button",
+            None
+        )
+
+        if button and button.isChecked() != self.fill_enabled:
+
+            button.setChecked(self.fill_enabled)
+
+        self.update()
+
+    # =========================================================
+    # ZOOM
+    # =========================================================
+
+
+    def set_zoom_mode(
+        self,
+        enabled
+    ):
+
+        self.zoom_mode = bool(
+            enabled
+        )
+
+        button = getattr(
+            self,
+            "zoom_button",
+            None
+        )
+
+        if button and button.isChecked() != self.zoom_mode:
+
+            button.setChecked(self.zoom_mode)
+
+        if not self.zoom_mode:
+
+            self.zoom_off()
+
+        elif self.zoom_index < 0:
+
+            # Encender la lupa arranca ya al primer
+            # nivel (110%).
+            self.zoom_in()
+
+        self.update_zoom_tooltip()
+
+        self.update()
+
+    def zoom_in(self):
+
+        if self.zoom_index >= (
+            len(self.zoom_levels) - 1
+        ):
+
+            # Tope: 200%, solo acerca.
+            self.zoom_timer.stop()
+
+            return
+
+        self.zoom_index += 1
+
+        self.apply_magnifier(
+            self.zoom_levels[self.zoom_index]
+        )
+
+        self.update_zoom_tooltip()
+
+    def zoom_off(self):
+
+        self.zoom_timer.stop()
+
+        self.zooming = False
+
+        self.zoom_index = -1
+
+        self.apply_magnifier(
+            None
+        )
+
+        self.update_zoom_tooltip()
+
+    def apply_magnifier(
+        self,
+        factor
+    ):
+
+        # Zoom de toda la pantalla con la lupa del
+        # escritorio de GNOME. Si no existe, no pasa
+        # nada: la aplicación sigue funcionando.
+        if not shutil.which("gsettings"):
+
+            return
+
+        schema_a11y = (
+            "org.gnome.desktop.a11y.applications"
+        )
+
+        schema_mag = (
+            "org.gnome.desktop.a11y.magnifier"
+        )
+
+        try:
+
+            if factor is None:
+
+                if not self.magnifier_on:
+
+                    return
+
+                self.magnifier_on = False
+
+                if (
+                    str(self.original_enabled)
+                    .strip("'")
+                    == "true"
+                ):
+
+                    # Lupa ajena: devolver su factor y
+                    # dejarla encendida como estaba.
+                    if self.original_mag_factor:
+
+                        subprocess.run(
+                            [
+                                "gsettings",
+                                "set",
+                                schema_mag,
+                                "mag-factor",
+                                self.original_mag_factor,
+                            ],
+                            capture_output=True,
+                            timeout=2,
+                        )
+
+                    self.clear_magnifier_state()
+
+                    return
+
+                # Lupa nuestra: con la lupa aún encendida
+                # bajamos la amplificación a 1.0 y solo
+                # después la apagamos. Apagar con el
+                # factor alto dejaba el cursor real
+                # desaparecido un rato (GNOME oculta el
+                # cursor mientras amplía y tarda en
+                # re-mostrarlo al cortar de golpe).
+                subprocess.run(
+                    [
+                        "gsettings",
+                        "set",
+                        schema_mag,
+                        "mag-factor",
+                        "1.0",
+                    ],
+                    capture_output=True,
+                    timeout=2,
+                )
+
+                subprocess.run(
+                    [
+                        "gsettings",
+                        "set",
+                        schema_a11y,
+                        "screen-magnifier-enabled",
+                        "false",
+                    ],
+                    capture_output=True,
+                    timeout=2,
+                )
+
+                original = self.original_mag_factor
+
+                self.original_enabled = None
+
+                if (
+                    original
+                    and str(original)
+                    .strip("'")
+                    != "1.0"
+                ):
+
+                    # El factor original vuelve pasado un
+                    # momento, con el cursor ya visible.
+                    # Se conserva original_mag_factor
+                    # para el temporizador.
+                    self.restore_factor_timer.start()
+
+                else:
+
+                    self.clear_magnifier_state()
+
+                return
+
+            if not self.magnifier_on:
+
+                if (
+                    self.restore_factor_timer
+                    .isActive()
+                ):
+
+                    # Terminar la restauración pendiente
+                    # antes de guardar un estado nuevo.
+                    self.restore_mag_factor_now()
+
+                # Primer encendido: guardar el estado
+                # previo del sistema.
+                result = subprocess.run(
+                    [
+                        "gsettings",
+                        "get",
+                        schema_a11y,
+                        "screen-magnifier-enabled",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+
+                self.original_enabled = (
+                    result.stdout.strip() or None
+                )
+
+                result = subprocess.run(
+                    [
+                        "gsettings",
+                        "get",
+                        schema_mag,
+                        "mag-factor",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                )
+
+                self.original_mag_factor = (
+                    result.stdout.strip() or None
+                )
+
+                subprocess.run(
+                    [
+                        "gsettings",
+                        "set",
+                        schema_mag,
+                        "mag-factor",
+                        str(factor),
+                    ],
+                    capture_output=True,
+                    timeout=2,
+                )
+
+                subprocess.run(
+                    [
+                        "gsettings",
+                        "set",
+                        schema_a11y,
+                        "screen-magnifier-enabled",
+                        "true",
+                    ],
+                    capture_output=True,
+                    timeout=2,
+                )
+
+                self.magnifier_on = True
+
+                return
+
+            # Subida de nivel: solo cambia el factor.
+            subprocess.run(
+                [
+                    "gsettings",
+                    "set",
+                    schema_mag,
+                    "mag-factor",
+                    str(factor),
+                ],
+                capture_output=True,
+                timeout=2,
+            )
+
+        except (
+            OSError,
+            subprocess.SubprocessError,
+        ):
+
+            pass
+
+    def clear_magnifier_state(self):
+
+        self.original_mag_factor = None
+
+        self.original_enabled = None
+
+    def restore_mag_factor_now(self):
+
+        self.restore_factor_timer.stop()
+
+        if self.magnifier_on:
+
+            self.clear_magnifier_state()
+
+            return
+
+        original = self.original_mag_factor
+
+        self.clear_magnifier_state()
+
+        if not original:
+
+            return
+
+        if not shutil.which("gsettings"):
+
+            return
+
+        try:
+
+            subprocess.run(
+                [
+                    "gsettings",
+                    "set",
+                    "org.gnome.desktop.a11y.magnifier",
+                    "mag-factor",
+                    str(original),
+                ],
+                capture_output=True,
+                timeout=2,
+            )
+
+        except (
+            OSError,
+            subprocess.SubprocessError,
+        ):
+
+            pass
+
+    def update_zoom_tooltip(self):
+
+        button = getattr(
+            self,
+            "zoom_button",
+            None
+        )
+
+        if button is None:
+
+            return
+
+        if self.zoom_index < 0:
+
+            button.setToolTip(
+                "Zoom de pantalla: apagado"
+            )
+
+        else:
+
+            percent = int(
+                self.zoom_levels[self.zoom_index]
+                * 100
+            )
+
+            button.setToolTip(
+                f"Zoom de pantalla: {percent}% — "
+                "clic izq. sube un nivel, "
+                "clic der. cancela"
+            )
 
     # =========================================================
     # DESHACER
@@ -923,6 +1606,21 @@ class DrawingOverlay(ObjectsMixin, CanvasMixin, PanelMixin, QWidget):
             self.moving_object = False
 
             self.update()
+
+            return
+
+        # Atajo: alterna entre el modo "usar el equipo
+        # normal" y la barra interactiva. Es el
+        # respaldo del atajo global del sistema.
+        # La tecla es configurable en Preferencias.
+        if self.hotkey_matches(event) and (
+            self.text_editor is None
+            or not hotkey_is_plain_letter(
+                saved_hotkey()
+            )
+        ):
+
+            self.toggle_requested.emit()
 
             return
 

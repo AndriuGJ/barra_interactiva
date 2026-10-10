@@ -7,6 +7,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.icons import app_icon
 from app.floating import FloatingToolbar
+from app.hotkey import HotkeyService
 
 
 def configure_qt_platform():
@@ -64,13 +65,33 @@ def main():
     app.setQuitOnLastWindowClosed(True)
 
     toolbar = FloatingToolbar()
-    toolbar.show()
+
+    # La barra inicial se omite: la aplicación arranca
+    # directamente con la barra completa de dibujo.
+    toolbar.overlay.activate()
+
+    # Atajo global F (GNOME) + socket local: F alterna
+    # entre "usar el equipo normal" y la barra. El
+    # atajo se retira al salir.
+    hotkey = HotkeyService()
+
+    hotkey.toggle_requested.connect(
+        toolbar.toggle_overlay
+    )
+
+    hotkey.start()
 
     timer = QTimer()
     timer.timeout.connect(lambda: None)
     timer.start(200)
 
-    sys.exit(app.exec())
+    try:
+
+        sys.exit(app.exec())
+
+    finally:
+
+        hotkey.stop()
 
 
 if __name__ == "__main__":

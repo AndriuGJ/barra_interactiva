@@ -1,6 +1,6 @@
 import math
 
-from PySide6.QtCore import QPoint, QRect
+from PySide6.QtCore import QEvent, QPoint, QRect, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import QLineEdit
 
@@ -59,9 +59,30 @@ class ObjectsMixin:
             self.confirm_text
         )
 
+        # Con el foco en el editor, Escape lo comería
+        # el QLineEdit: lo interceptamos aquí para que
+        # cierre el editor como en la documentación.
+        self.text_editor.installEventFilter(self)
+
         self.text_editor.show()
         self.text_editor.raise_()
         self.text_editor.setFocus()
+
+    def eventFilter(self, obj, event):
+
+        if (
+            obj is self.text_editor
+            and event.type()
+            == QEvent.Type.KeyPress
+            and event.key()
+            == Qt.Key.Key_Escape
+        ):
+
+            self.cancel_text_editor()
+
+            return True
+
+        return super().eventFilter(obj, event)
 
 
     def confirm_text(self):

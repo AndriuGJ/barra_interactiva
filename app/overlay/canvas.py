@@ -65,6 +65,7 @@ class CanvasMixin:
             )
 
         if not self.drawing:
+
             return
 
         # PREVISUALIZACIÓN LÁPIZ
@@ -78,6 +79,10 @@ class CanvasMixin:
                     self.pen_color,
                     self.pen_width
                 )
+            )
+
+            painter.setBrush(
+                Qt.BrushStyle.NoBrush
             )
 
             for i in range(
@@ -104,6 +109,12 @@ class CanvasMixin:
                 )
             )
 
+            painter.setBrush(
+                QColor(self.pen_color)
+                if self.fill_enabled
+                else Qt.BrushStyle.NoBrush
+            )
+
             painter.drawRect(
                 QRect(
                     self.start_point,
@@ -118,6 +129,12 @@ class CanvasMixin:
                     self.pen_color,
                     self.pen_width
                 )
+            )
+
+            painter.setBrush(
+                QColor(self.pen_color)
+                if self.fill_enabled
+                else Qt.BrushStyle.NoBrush
             )
 
             painter.drawEllipse(
@@ -200,6 +217,14 @@ class CanvasMixin:
 
         elif obj["type"] == "rectangle":
 
+            # El relleno es una propiedad de cada forma
+            # (lo decide el botón de relleno al dibujarla).
+            painter.setBrush(
+                QColor(obj["color"])
+                if obj.get("filled", False)
+                else Qt.BrushStyle.NoBrush
+            )
+
             painter.drawRect(
                 QRect(
                     obj["start"],
@@ -208,6 +233,12 @@ class CanvasMixin:
             )
 
         elif obj["type"] == "ellipse":
+
+            painter.setBrush(
+                QColor(obj["color"])
+                if obj.get("filled", False)
+                else Qt.BrushStyle.NoBrush
+            )
 
             painter.drawEllipse(
                 QRect(
@@ -344,6 +375,13 @@ class CanvasMixin:
                 p1,
                 p2
             ])
+        )
+
+        # El relleno solo es para la punta: lo quitamos
+        # para que las formas siguientes no se pinten
+        # rellenadas.
+        painter.setBrush(
+            Qt.BrushStyle.NoBrush
         )
 
     # =========================================================

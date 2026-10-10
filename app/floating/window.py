@@ -1,3 +1,5 @@
+import time
+
 from PySide6.QtCore import Qt, QPoint, QTimer
 from PySide6.QtWidgets import (
     QWidget,
@@ -28,8 +30,30 @@ class FloatingToolbar(QWidget):
 
         self.overlay = DrawingOverlay()
 
+        # La X de la fila superior termina con la
+        # aplicación: la barra inicial ya no se vuelve
+        # a mostrar.
         self.overlay.stop_requested.connect(
-            self.stop_overlay
+            self.close_application
+        )
+
+        # F (tecla local o atajo global del sistema)
+        # alterna modo normal <-> pantalla de dibujo.
+        self.overlay.toggle_requested.connect(
+            self.toggle_overlay
+        )
+
+        self._last_toggle = 0.0
+
+        # Cualquier salida del bucle (quit, Ctrl+C)
+        # apaga la lupa del escritorio si quedó activa
+        # y devuelve el factor de amplificación original.
+        QApplication.instance().aboutToQuit.connect(
+            self.overlay.zoom_off
+        )
+
+        QApplication.instance().aboutToQuit.connect(
+            self.overlay.restore_mag_factor_now
         )
 
         self.setWindowTitle(
@@ -325,6 +349,28 @@ class FloatingToolbar(QWidget):
             size
         )
 
+    def toggle_overlay(self):
+
+        # Un mismo pulso puede llegar dos veces (tecla
+        # local + atajo global): las juntamos.
+        now = time.monotonic()
+
+        if now - self._last_toggle < 0.3:
+
+            return
+
+        self._last_toggle = now
+
+        if self.overlay.isVisible():
+
+            # Modo normal: se oculta del todo para
+            # usar el equipo.
+            self.overlay.deactivate()
+
+        else:
+
+            self.overlay.activate()
+
     # =========================================================
     # COLOR PERSONALIZADO
     # =========================================================
@@ -362,6 +408,10 @@ class FloatingToolbar(QWidget):
     # =========================================================
 
     def close_application(self):
+
+        self.overlay.zoom_off()
+
+        self.overlay.restore_mag_factor_now()
 
         self.overlay.close()
         self.close()

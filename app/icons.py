@@ -48,6 +48,12 @@ CLEAR_ICON = "fa6s.trash-can"
 
 SCREENSHOT_ICON = "fa6s.camera"
 
+CONFIG_ICON = "fa6s.gear"
+
+FILL_ICON = "fa6s.fill-drip"
+
+ZOOM_ICON = "fa6s.magnifying-glass-plus"
+
 TOOL_ICONS = {
     "hand": "fa6s.arrow-pointer",
     "pencil": "fa6s.pencil",

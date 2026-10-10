@@ -1,6 +1,7 @@
 from PySide6.QtCore import Qt, QPoint
 from PySide6.QtWidgets import (
     QWidget,
+    QHBoxLayout,
     QVBoxLayout,
     QPushButton,
     QLabel,
@@ -35,12 +36,20 @@ class PanelMixin:
         )
 
         layout.setSpacing(
-            4
+            3
         )
 
+        self.toolbar_layout = layout
+
         # -----------------------------------------------------
-        # ARRASTRAR
+        # FILA SUPERIOR: MOVER, MINIMIZAR Y CERRAR
         # -----------------------------------------------------
+
+        top_row = QHBoxLayout()
+
+        top_row.setSpacing(
+            4
+        )
 
         self.drag_label = QLabel()
 
@@ -79,8 +88,87 @@ class PanelMixin:
             self.toolbar_drag_release
         )
 
-        layout.addWidget(
-            self.drag_label
+        top_row.addWidget(
+            self.drag_label,
+            1
+        )
+
+        # MINIMIZAR (solo con la barra desplegada)
+        self.minimize_button = QPushButton()
+
+        icons.set_icon(
+            self.minimize_button,
+            icons.MINIMIZE_ICON
+        )
+
+        self.minimize_button.setObjectName(
+            "minimizeButton"
+        )
+
+        self.minimize_button.setToolTip(
+            "Minimizar barra"
+        )
+
+        self.minimize_button.clicked.connect(
+            self.collapse_toolbar
+        )
+
+        top_row.addWidget(
+            self.minimize_button
+        )
+
+        # RESTAURAR (solo con la barra minimizada)
+        self.expand_button = QPushButton()
+
+        icons.set_icon(
+            self.expand_button,
+            icons.EXPAND_ICON
+        )
+
+        self.expand_button.setObjectName(
+            "expandButton"
+        )
+
+        self.expand_button.setToolTip(
+            "Restaurar barra"
+        )
+
+        self.expand_button.clicked.connect(
+            self.expand_toolbar
+        )
+
+        self.expand_button.hide()
+
+        top_row.addWidget(
+            self.expand_button
+        )
+
+        # CERRAR
+        self.close_button = QPushButton()
+
+        icons.set_icon(
+            self.close_button,
+            icons.CLOSE_ICON
+        )
+
+        self.close_button.setObjectName(
+            "closeButton"
+        )
+
+        self.close_button.setToolTip(
+            "Cerrar aplicación"
+        )
+
+        self.close_button.clicked.connect(
+            self.stop_requested.emit
+        )
+
+        top_row.addWidget(
+            self.close_button
+        )
+
+        layout.addLayout(
+            top_row
         )
 
         # -----------------------------------------------------
@@ -355,6 +443,61 @@ class PanelMixin:
             self.thick_button
         )
 
+        # -----------------------------------------------------
+        # RELLENO
+        # -----------------------------------------------------
+
+        self.fill_button = QPushButton()
+
+        icons.set_icon(
+            self.fill_button,
+            icons.FILL_ICON
+        )
+
+        self.fill_button.setCheckable(
+            True
+        )
+
+        self.fill_button.setToolTip(
+            "Rellenar rectángulos y círculos"
+        )
+
+        self.fill_button.clicked.connect(
+            self.set_fill
+        )
+
+        layout.addWidget(
+            self.fill_button
+        )
+
+        # -----------------------------------------------------
+        # ZOOM
+        # -----------------------------------------------------
+
+        self.zoom_button = QPushButton()
+
+        icons.set_icon(
+            self.zoom_button,
+            icons.ZOOM_ICON
+        )
+
+        self.zoom_button.setCheckable(
+            True
+        )
+
+        self.zoom_button.setToolTip(
+            "Lupa: clic izquierdo acerca un nivel "
+            "(110%..200%); clic derecho cancela"
+        )
+
+        self.zoom_button.clicked.connect(
+            self.set_zoom_mode
+        )
+
+        layout.addWidget(
+            self.zoom_button
+        )
+
         self.add_separator(
             layout
         )
@@ -429,27 +572,27 @@ class PanelMixin:
         )
 
         # -----------------------------------------------------
-        # INTERACTUAR
+        # CONFIGURACION
         # -----------------------------------------------------
 
-        self.stop_button = QPushButton(
-            "Interactuar"
+        self.config_button = QPushButton()
+
+        icons.set_icon(
+            self.config_button,
+            icons.CONFIG_ICON
         )
 
-        self.stop_button.setObjectName(
-            "stopButton"
+        self.config_button.setToolTip(
+            "Preferencias: tecla del atajo y "
+            "carpeta de capturas"
         )
 
-        self.stop_button.setToolTip(
-            "Volver a usar normalmente el escritorio"
-        )
-
-        self.stop_button.clicked.connect(
-            self.stop_requested.emit
+        self.config_button.clicked.connect(
+            self.open_preferences
         )
 
         layout.addWidget(
-            self.stop_button
+            self.config_button
         )
 
         self.toolbar.adjustSize()
@@ -514,14 +657,16 @@ class PanelMixin:
                 border: 2px solid #a89aff;
             }
 
-            #stopButton {
-                background-color: #7460ee;
-                min-width: 82px;
-                font-size: 13px;
+            #closeButton:hover {
+                background-color: #ea5b5d;
             }
 
-            #stopButton:hover {
-                background-color: #6652df;
+            #minimizeButton,
+            #expandButton,
+            #closeButton {
+                min-width: 20px;
+                min-height: 20px;
+                padding: 1px;
             }
 
             #mediumWidth {
@@ -627,6 +772,96 @@ class PanelMixin:
         return self.toolbar.mapToGlobal(
             QPoint(0, 0)
         )
+
+    # =========================================================
+    # MINIMIZAR / RESTAURAR BARRA
+    # =========================================================
+
+
+    def collapse_toolbar(self):
+
+        # Dejamos solo la fila superior (mover,
+        # restaurar y cerrar) para dibujar con
+        # más espacio.
+        for index in range(
+            1,
+            self.toolbar_layout.count()
+        ):
+
+            widget = (
+                self.toolbar_layout
+                .itemAt(index)
+                .widget()
+            )
+
+            if widget is not None:
+
+                widget.hide()
+
+        self.minimize_button.hide()
+
+        self.expand_button.show()
+
+        self.resize_toolbar_keeping_center()
+
+
+    def expand_toolbar(self):
+
+        for index in range(
+            1,
+            self.toolbar_layout.count()
+        ):
+
+            widget = (
+                self.toolbar_layout
+                .itemAt(index)
+                .widget()
+            )
+
+            if widget is not None:
+
+                widget.show()
+
+        self.expand_button.hide()
+
+        self.minimize_button.show()
+
+        self.resize_toolbar_keeping_center()
+
+
+    def resize_toolbar_keeping_center(self):
+
+        center = (
+            self.toolbar.geometry().center()
+        )
+
+        self.toolbar.adjustSize()
+
+        width = self.toolbar.width()
+
+        height = self.toolbar.height()
+
+        x = center.x() - width // 2
+
+        y = center.y() - height // 2
+
+        x = max(
+            0,
+            min(
+                x,
+                self.width() - width
+            )
+        )
+
+        y = max(
+            0,
+            min(
+                y,
+                self.height() - height
+            )
+        )
+
+        self.toolbar.move(x, y)
 
     # =========================================================
     # MOVER TOOLBAR
