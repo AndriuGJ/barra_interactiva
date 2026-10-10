@@ -169,3 +169,21 @@ eliminar de forma segura desde la aplicación.
 
 
 
+
+
+## Windows
+
+También puede compilarse para Windows como un ejecutable independiente con
+GitHub Actions. La versión de Windows se genera con PyInstaller en un runner
+Windows, por lo que no se intenta compilar el .exe desde Linux.
+
+Archivo generado:
+
+```text
+BarraInteractiva_1.0.6_Windows.exe
+```
+
+La versión Windows conserva las herramientas de dibujo y la captura mediante
+Qt. Las funciones integradas específicamente con GNOME, como el registro del
+atajo global mediante `gsettings` y la lupa del escritorio de GNOME, solo
+se aplican en Linux.
