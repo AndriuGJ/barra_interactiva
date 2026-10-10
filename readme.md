@@ -187,3 +187,14 @@ La versión Windows conserva las herramientas de dibujo y la captura mediante
 Qt. Las funciones integradas específicamente con GNOME, como el registro del
 atajo global mediante `gsettings` y la lupa del escritorio de GNOME, solo
 se aplican en Linux.
+
+
+## Compatibilidad del atajo en Windows
+
+El atajo global implementado mediante `gsettings` y socket UNIX es exclusivo
+de GNOME/Linux. En Windows la aplicación ya no intenta crear `AF_UNIX`, por lo
+que no se produce el error `module 'socket' has no attribute 'AF_UNIX'`.
+
+Las herramientas principales de dibujo siguen disponibles en Windows. El atajo
+global configurable de GNOME queda desactivado allí; la tecla configurada sigue
+pudiendo actuar cuando la ventana de dibujo tiene el foco.
