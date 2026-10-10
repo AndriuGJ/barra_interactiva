@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - build/release-1.0.6
+      - fix/windows-hotkey-1.0.7
   workflow_dispatch:
 
 jobs:
@@ -35,11 +35,11 @@ jobs:
       - name: Renombrar versión
         shell: powershell
         run: |
-          Copy-Item "dist\BarraInteractiva.exe" "BarraInteractiva_1.0.6_Windows.exe"
+          Copy-Item "dist\BarraInteractiva.exe" "BarraInteractiva_1.0.7_Windows.exe"
 
       - name: Subir EXE
         uses: actions/upload-artifact@v4
         with:
-          name: barra-interactiva-windows-1.0.6
-          path: BarraInteractiva_1.0.6_Windows.exe
+          name: barra-interactiva-windows-1.0.7
+          path: BarraInteractiva_1.0.7_Windows.exe
           if-no-files-found: error
