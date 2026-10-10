@@ -26,7 +26,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Ejecutar
+## Ejecutar xd
 
 ```bash
 python app.py
