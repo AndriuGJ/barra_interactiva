@@ -18,6 +18,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 
 from PySide6.QtCore import (
     QObject,
@@ -51,6 +52,12 @@ HOTKEY_DEFAULT = "F"
 HOTKEY_ORGANIZATION = "BarraInteractiva"
 
 HOTKEY_APPLICATION = "BarraInteractiva"
+
+IS_LINUX = sys.platform.startswith("linux")
+
+HAS_UNIX_SOCKET = (
+    hasattr(socket, "AF_UNIX")
+)
 
 _GTK_MODIFIERS = {
     "ctrl": "<Control>",
@@ -273,6 +280,9 @@ def set_shortcut_binding(qt_sequence):
 
     """Aplica la tecla al atajo de GNOME en caliente."""
 
+    if not IS_LINUX:
+        return False
+
     if not shutil.which("gsettings"):
 
         return False
@@ -419,6 +429,9 @@ def register_shortcut(socket_file):
     devuelve True si se instaló. Preserva los atajos
     existentes."""
 
+    if not IS_LINUX or not HAS_UNIX_SOCKET:
+        return False
+
     if not shutil.which("gsettings"):
 
         return False
@@ -507,6 +520,9 @@ def unregister_shortcut():
 
     """Retira el atajo dejando los demás como estaban."""
 
+    if not IS_LINUX:
+        return
+
     try:
 
         os.unlink(hotkey_script_path())
@@ -571,6 +587,13 @@ class HotkeyService(QObject):
         self._registered = False
 
     def start(self, register=True):
+
+        # AF_UNIX no está disponible en algunas instalaciones
+        # de Python/Windows. El atajo global implementado aquí
+        # es específico de GNOME/Linux, así que en Windows no
+        # se crea socket ni se intenta registrar gsettings.
+        if not IS_LINUX or not HAS_UNIX_SOCKET:
+            return
 
         path = self._path
 
